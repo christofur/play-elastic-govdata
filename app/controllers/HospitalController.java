@@ -1,9 +1,16 @@
 package controllers;
 
+import akka.NotUsed;
 import akka.actor.ActorSystem;
 import akka.actor.Scheduler;
+import akka.actor.Status;
+import akka.stream.OverflowStrategy;
+import akka.stream.javadsl.Source;
+import akka.util.ByteString;
 import com.fasterxml.jackson.databind.JsonNode;
+import data.ExampleData;
 import play.Configuration;
+import play.api.http.HttpEntity;
 import play.mvc.Controller;
 import play.mvc.Result;
 import play.mvc.Results;
@@ -13,6 +20,7 @@ import scala.concurrent.duration.Duration;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -68,6 +76,25 @@ public class HospitalController extends Controller {
         return ws.url(url).setAuth(user, pass, WSAuthScheme.BASIC).get().thenApply(response ->
                 ok(response.asJson())
         );
+    }
+
+    public Result hospitalStream() {
+
+        // Prepare a chunked text stream
+        Source<ByteString, ?> source = Source.<ByteString>actorRef(1024, OverflowStrategy.fail())
+                .mapMaterializedValue(sourceActor -> {
+
+                    for(int i = 0; i < 999; i++){
+                        sourceActor.tell(ByteString.fromString(ExampleData.One), null);
+                        sourceActor.tell(ByteString.fromString(ExampleData.Two), null);
+                        sourceActor.tell(ByteString.fromString(ExampleData.Three), null);
+                    }
+
+                    sourceActor.tell(new Status.Success(NotUsed.getInstance()), null);
+                    return null;
+                });
+        // Serves this stream with 200 OK
+        return ok().chunked(source);
     }
 
     private CompletionStage<String> getFutureMessage(long time, TimeUnit timeUnit) {
